@@ -1,0 +1,87 @@
+#! /usr/bin/env node
+const program = require('commander')
+const execa   = require('execa')
+const util    = require('util')
+const fs      = require('fs')
+const stat    = util.promisify(fs.stat)
+const readdir = util.promisify(fs.readdir)
+const path    = require('path')
+const ora     = require('ora')
+
+program
+  .version('0.1.0')
+  .option('-o --output [output]', 'output')
+
+program.parse(process.argv)
+
+let output = program.output
+
+if (output === undefined || output === '') {
+  console.log(`\x1b[33m${'You should set the output path'}\x1b[0m`)
+  process.exit(1)
+}
+
+if (output.endsWith('/')) {output = output.substring(0, output.length - 1)}
+
+execa.shellSync(`mkdir -p "${output}"`)
+
+async function main () {
+
+  let [files] = program.args
+
+  files = files.split(/\n/).filter(item => item !== '')
+
+  let promiseList = []
+
+  for (let i = 0; i < files.length; ++i) {
+
+    let file = files[i]
+
+    try {
+
+      let { stdout } = await execa.shell(`eval "if [ -d '${file}' ]; then echo 0; elif [ -f '${file}' ]; then echo 1; else echo -1; fi"`)
+
+      switch (parseInt(stdout)) {
+        case 0: {
+          let cmd = `cp -R "${file}" "${program.output}/${path.parse(file).base}"`
+          // console.log(cmd)
+          promiseList.push(execa.shell(cmd))
+          break
+        }
+
+        case 1: {
+          let cmd = `cp "${file}" "${program.output}/${path.parse(file).base}"`
+          // console.log(cmd)
+          promiseList.push(execa.shell(cmd))
+          break
+        }
+        case -1:
+          // promiseList.push(execa.shell(`cp "${file}" "${program.output}/${path.parse(file).base}"`))
+          break
+        default:
+          console.log(`\x1b[41m${'not matched'}\x1b[0m`)
+      }
+
+    } catch (err) {
+      console.log(`\x1b[31m${err.message}\x1b[0m`)
+    }
+    // execa('cp', [`"${file}"`,`"${program.output}/${path.parse(file).base}"`]).stdout.pipe(process.stdout)
+  }
+
+  return promiseList
+}
+
+const spinner = ora(`please wait for seconds...`).start()
+
+main().then((promiseList) => {
+  Promise.all(promiseList).then(() => {
+    spinner.succeed('completed')
+  }).catch((err) => {
+    spinner.fail(err)
+  })
+}).catch((err) => {
+  console.log(`\x1b[41m${err}\x1b[0m`)
+})
+
+
+
